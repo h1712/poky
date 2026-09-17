@@ -132,6 +132,17 @@ SSTATE_HASHEQUIV_REPORT_TASKDATA[doc] = "Report additional useful data to the \
     data if the equivalence server is public. \
     "
 
+HASHEQUIV_ABI_AWARE_SHLIBS ?= "0"
+HASHEQUIV_ABI_AWARE_SHLIBS[doc] = "When set to '1', the output hash computed for \
+    ELF shared libraries (*.so, *.so.N) in do_populate_sysroot is based only on \
+    the library's dynamic symbol export table (its public ABI) instead of its \
+    full file content. This allows hash equivalence to recognize two builds of \
+    the same shared library as equivalent when only its internal (non-exported) \
+    implementation changed, so that downstream tasks which merely link against \
+    the library's declared interface can avoid an unnecessary rebuild cascade. \
+    Requires READELF to be set to a working readelf for the target. \
+    "
+
 python () {
     if bb.data.inherits_class('native', d):
         d.setVar('SSTATE_PKGARCH', d.getVar('BUILD_ARCH', False))
