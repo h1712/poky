@@ -491,6 +491,7 @@ def OEOuthashBasic(path, sigfile, task, d):
     import grp
     import re
     import fnmatch
+    import subprocess
 
     def update_hash(s):
         s = s.encode('utf-8')
@@ -512,6 +513,54 @@ def OEOuthashBasic(path, sigfile, task, d):
         include_root = False
     hash_version = d.getVar('HASHEQUIV_HASH_VERSION')
     extra_sigdata = d.getVar("HASHEQUIV_EXTRA_SIGDATA")
+
+    # When enabled, ELF shared libraries produced by do_populate_sysroot are
+    # hashed using only their dynamic symbol export table (their public ABI)
+    # rather than their full file content. This lets hash-equivalence treat
+    # two builds of the same shared library as equivalent when only internal
+    # (non-exported) code changed, so tasks that merely link against the
+    # library's declared interface can avoid an unnecessary rebuild.
+    abi_aware_shlibs = d.getVar('HASHEQUIV_ABI_AWARE_SHLIBS') == '1'
+    readelf = d.getVar('READELF')
+
+    def get_abi_hash(fpath):
+        if not readelf:
+            return None
+        try:
+            output = subprocess.check_output(
+                [readelf, '-W', '--dyn-syms', fpath],
+                stderr=subprocess.DEVNULL
+            ).decode('utf-8', errors='replace')
+        except (subprocess.CalledProcessError, OSError):
+            return None
+
+        symbols = []
+        for line in output.splitlines():
+            fields = line.split()
+            # readelf --dyn-syms rows look like:
+            # Num:    Value  Size Type    Bind   Vis      Ndx Name
+            # Skip the header row and anything that isn't an actual
+            # "<num>:" entry line.
+            if len(fields) < 8 or not re.match(r'^[0-9]+:$', fields[0]):
+                continue
+            ndx = fields[6]
+            name = fields[7]
+            if ndx == "UND" or not name:
+                # Undefined (imported) symbols aren't part of this
+                # library's own exported ABI.
+                continue
+            symbols.append(name)
+
+        if not symbols:
+            return None
+
+        symbols.sort()
+        abi_hash = hashlib.sha256()
+        abi_hash.update("\n".join(symbols).encode("utf-8"))
+        return abi_hash.hexdigest()
+
+    def is_shared_lib(fpath):
+        return bool(re.search(r'\.so(\.[0-9]+)*$', fpath))
 
     filemaps = {}
     for m in (d.getVar('SSTATE_HASHEQUIV_FILEMAP') or '').split():
@@ -614,15 +663,25 @@ def OEOuthashBasic(path, sigfile, task, d):
                     if fnmatch.fnmatch(path, entry):
                         filterfile = True
 
+                abi_hash = None
+                if abi_aware_shlibs and stat.S_ISREG(s.st_mode) and not filterfile and is_shared_lib(path):
+                    abi_hash = get_abi_hash(path)
+
                 update_hash(" ")
-                if stat.S_ISREG(s.st_mode) and not filterfile:
+                if stat.S_ISREG(s.st_mode) and not filterfile and abi_hash is None:
                     update_hash("%10d" % s.st_size)
                 else:
+                    # Real file size is omitted for ABI-hashed shared
+                    # libraries since it will differ from a previous build
+                    # even when the exported ABI (and thus the hash used
+                    # below) is identical.
                     update_hash(" " * 10)
 
                 update_hash(" ")
                 fh = hashlib.sha256()
-                if stat.S_ISREG(s.st_mode):
+                if abi_hash is not None:
+                    update_hash(abi_hash)
+                elif stat.S_ISREG(s.st_mode):
                     # Hash file contents
                     if filterfile:
                         # Need to ignore paths in crossscripts and postinst-useradd files.
