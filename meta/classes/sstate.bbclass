@@ -144,7 +144,7 @@ HASHEQUIV_ABI_AWARE_SHLIBS[doc] = "When set to '1', the output hash computed for
     readelf for the target. \
     "
 
-HASHEQUIV_ABI_HASH_VERSION ?= "2"
+HASHEQUIV_ABI_HASH_VERSION ?= "3"
 HASHEQUIV_ABI_HASH_VERSION[doc] = "Version of the normalized ABI descriptor \
     used by HASHEQUIV_ABI_AWARE_SHLIBS. Increment this when the descriptor \
     format changes so records produced by different algorithms cannot be \
