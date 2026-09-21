@@ -514,13 +514,14 @@ def OEOuthashBasic(path, sigfile, task, d):
     hash_version = d.getVar('HASHEQUIV_HASH_VERSION')
     extra_sigdata = d.getVar("HASHEQUIV_EXTRA_SIGDATA")
 
-    # When enabled, ELF shared libraries produced by do_populate_sysroot are
-    # hashed using only their dynamic symbol export table (their public ABI)
-    # rather than their full file content. This lets hash-equivalence treat
-    # two builds of the same shared library as equivalent when only internal
-    # (non-exported) code changed, so tasks that merely link against the
-    # library's declared interface can avoid an unnecessary rebuild.
-    abi_aware_shlibs = d.getVar('HASHEQUIV_ABI_AWARE_SHLIBS') == '1'
+    # When enabled, ELF shared libraries in do_populate_sysroot are hashed
+    # using a normalized public ABI descriptor rather than their full file
+    # content. This lets hash-equivalence treat two builds of the same shared
+    # library as equivalent when only internal (non-exported) code changed,
+    # while retaining the normal content hash for package and runtime tasks.
+    abi_aware_shlibs = (d.getVar('HASHEQUIV_ABI_AWARE_SHLIBS') == '1' and
+                        task == 'populate_sysroot')
+    abi_hash_version = d.getVar('HASHEQUIV_ABI_HASH_VERSION') or '1'
     readelf = d.getVar('READELF')
 
     def get_abi_hash(fpath):
@@ -528,35 +529,92 @@ def OEOuthashBasic(path, sigfile, task, d):
             return None
         try:
             output = subprocess.check_output(
-                [readelf, '-W', '--dyn-syms', fpath],
+                [readelf, '-W', '-h', '-d', '--dyn-syms',
+                 '--with-symbol-versions', fpath],
                 stderr=subprocess.DEVNULL
             ).decode('utf-8', errors='replace')
         except (subprocess.CalledProcessError, OSError):
             return None
 
+        descriptor = [
+            'ABI-HASH-VERSION=%s' % abi_hash_version,
+        ]
+        elf_identity = {}
         symbols = []
+        soname = None
+        needed = []
+        section = None
+        symbol_rows = False
         for line in output.splitlines():
             fields = line.split()
+            if line.startswith('  Class:'):
+                elf_identity['CLASS'] = line.split(':', 1)[1].strip()
+                continue
+            if line.startswith('  Data:'):
+                elf_identity['DATA'] = line.split(':', 1)[1].strip()
+                continue
+            if line.startswith('  OS/ABI:'):
+                elf_identity['OSABI'] = line.split(':', 1)[1].strip()
+                continue
+            if line.startswith('  Machine:'):
+                elf_identity['MACHINE'] = line.split(':', 1)[1].strip()
+                continue
+            if line.startswith('  Type:'):
+                elf_identity['TYPE'] = line.split(':', 1)[1].strip()
+                continue
+            if '(SONAME)' in line:
+                match = re.search(r'\[(.*)\]', line)
+                if not match:
+                    return None
+                soname = match.group(1)
+                continue
+            if '(NEEDED)' in line:
+                match = re.search(r'\[(.*)\]', line)
+                if not match:
+                    return None
+                needed.append(match.group(1))
+                continue
+            if line.startswith('Symbol table'):
+                section = 'symbols'
+                continue
+            if section != 'symbols':
+                continue
             # readelf --dyn-syms rows look like:
-            # Num:    Value  Size Type    Bind   Vis      Ndx Name
-            # Skip the header row and anything that isn't an actual
-            # "<num>:" entry line.
+            # Num: Value Size Type Bind Vis Ndx Name
+            # Skip headers, blank lines, and malformed rows. A malformed
+            # symbol row makes the descriptor unsafe, so fall back to the
+            # normal content hash instead of silently omitting it.
+            if not fields or fields[0] == 'Num:':
+                continue
             if len(fields) < 8 or not re.match(r'^[0-9]+:$', fields[0]):
+                # The dynamic symbol table is followed by other readelf
+                # sections. Stop parsing when the next section begins.
+                if symbol_rows:
+                    section = None
                 continue
             ndx = fields[6]
-            name = fields[7]
-            if ndx == "UND" or not name:
-                # Undefined (imported) symbols aren't part of this
-                # library's own exported ABI.
+            if ndx == 'UND':
                 continue
-            symbols.append(name)
+            name = ' '.join(fields[7:])
+            if not name:
+                return None
+            symbol_rows = True
+            symbols.append('|'.join((fields[3], fields[4], fields[5],
+                                     ndx, fields[2], name)))
 
         if not symbols:
             return None
 
+        if set(('CLASS', 'DATA', 'OSABI', 'MACHINE', 'TYPE')) - set(elf_identity):
+            return None
+
+        descriptor.extend('%s=%s' % item for item in sorted(elf_identity.items()))
+        descriptor.append('SONAME=%s' % (soname or '<none>'))
+        descriptor.extend('NEEDED=%s' % entry for entry in sorted(needed))
         symbols.sort()
+        descriptor.extend(symbols)
         abi_hash = hashlib.sha256()
-        abi_hash.update("\n".join(symbols).encode("utf-8"))
+        abi_hash.update("\n".join(descriptor).encode('utf-8'))
         return abi_hash.hexdigest()
 
     def is_shared_lib(fpath):
@@ -727,5 +785,3 @@ def OEOuthashBasic(path, sigfile, task, d):
         os.chdir(prev_dir)
 
     return h.hexdigest()
-
-
