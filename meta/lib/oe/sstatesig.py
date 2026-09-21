@@ -535,7 +535,7 @@ def OEOuthashBasic(path, sigfile, task, d):
         try:
             output = subprocess.check_output(
                 [readelf, '-W', '-h', '-d', '--dyn-syms',
-                 '--with-symbol-versions', fpath],
+                 fpath],
                 stderr=subprocess.DEVNULL
             ).decode('utf-8', errors='replace')
         except (subprocess.CalledProcessError, OSError):
