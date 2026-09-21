@@ -524,9 +524,14 @@ def OEOuthashBasic(path, sigfile, task, d):
     abi_hash_version = d.getVar('HASHEQUIV_ABI_HASH_VERSION') or '1'
     readelf = d.getVar('READELF')
 
+    def abi_fallback(fpath, reason):
+        bb.debug(2, 'Hash equivalence ABI hash fallback for %s: %s' %
+                 (fpath, reason))
+        return None
+
     def get_abi_hash(fpath):
         if not readelf:
-            return None
+            return abi_fallback(fpath, 'READELF is not configured')
         try:
             output = subprocess.check_output(
                 [readelf, '-W', '-h', '-d', '--dyn-syms',
@@ -534,7 +539,7 @@ def OEOuthashBasic(path, sigfile, task, d):
                 stderr=subprocess.DEVNULL
             ).decode('utf-8', errors='replace')
         except (subprocess.CalledProcessError, OSError):
-            return None
+            return abi_fallback(fpath, 'readelf inspection failed')
 
         descriptor = [
             'ABI-HASH-VERSION=%s' % abi_hash_version,
@@ -565,13 +570,13 @@ def OEOuthashBasic(path, sigfile, task, d):
             if '(SONAME)' in line:
                 match = re.search(r'\[(.*)\]', line)
                 if not match:
-                    return None
+                    return abi_fallback(fpath, 'invalid SONAME entry')
                 soname = match.group(1)
                 continue
             if '(NEEDED)' in line:
                 match = re.search(r'\[(.*)\]', line)
                 if not match:
-                    return None
+                    return abi_fallback(fpath, 'invalid NEEDED entry')
                 needed.append(match.group(1))
                 continue
             if line.startswith('Symbol table'):
@@ -597,16 +602,16 @@ def OEOuthashBasic(path, sigfile, task, d):
                 continue
             name = ' '.join(fields[7:])
             if not name:
-                return None
+                return abi_fallback(fpath, 'empty dynamic symbol name')
             symbol_rows = True
             symbols.append('|'.join((fields[3], fields[4], fields[5],
                                      ndx, fields[2], name)))
 
         if not symbols:
-            return None
+            return abi_fallback(fpath, 'no defined dynamic symbols')
 
         if set(('CLASS', 'DATA', 'OSABI', 'MACHINE', 'TYPE')) - set(elf_identity):
-            return None
+            return abi_fallback(fpath, 'incomplete ELF identity')
 
         descriptor.extend('%s=%s' % item for item in sorted(elf_identity.items()))
         descriptor.append('SONAME=%s' % (soname or '<none>'))
@@ -615,6 +620,8 @@ def OEOuthashBasic(path, sigfile, task, d):
         descriptor.extend(symbols)
         abi_hash = hashlib.sha256()
         abi_hash.update("\n".join(descriptor).encode('utf-8'))
+        bb.debug(2, 'Hash equivalence ABI hash applied to %s (%d symbols)' %
+                 (fpath, len(symbols)))
         return abi_hash.hexdigest()
 
     def is_shared_lib(fpath):
