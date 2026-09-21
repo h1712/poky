@@ -134,13 +134,21 @@ SSTATE_HASHEQUIV_REPORT_TASKDATA[doc] = "Report additional useful data to the \
 
 HASHEQUIV_ABI_AWARE_SHLIBS ?= "0"
 HASHEQUIV_ABI_AWARE_SHLIBS[doc] = "When set to '1', the output hash computed for \
-    ELF shared libraries (*.so, *.so.N) in do_populate_sysroot is based only on \
-    the library's dynamic symbol export table (its public ABI) instead of its \
-    full file content. This allows hash equivalence to recognize two builds of \
-    the same shared library as equivalent when only its internal (non-exported) \
-    implementation changed, so that downstream tasks which merely link against \
-    the library's declared interface can avoid an unnecessary rebuild cascade. \
-    Requires READELF to be set to a working readelf for the target. \
+    ELF shared libraries (*.so, *.so.N) in do_populate_sysroot use a normalized \
+    ABI descriptor instead of their full file content. The descriptor includes \
+    ELF identity, SONAME, and defined dynamic symbols with type, binding, \
+    visibility, size, and version information. This allows hash equivalence to \
+    recognize internal implementation-only changes while retaining normal \
+    content hashing for package and runtime tasks. If ABI inspection fails, \
+    full-content hashing is used. Requires READELF to be set to a working \
+    readelf for the target. \
+    "
+
+HASHEQUIV_ABI_HASH_VERSION ?= "2"
+HASHEQUIV_ABI_HASH_VERSION[doc] = "Version of the normalized ABI descriptor \
+    used by HASHEQUIV_ABI_AWARE_SHLIBS. Increment this when the descriptor \
+    format changes so records produced by different algorithms cannot be \
+    treated as equivalent. \
     "
 
 python () {
