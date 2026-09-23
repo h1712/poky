@@ -173,9 +173,9 @@ SSTATEPREINSTFUNCS:append:class-target = " useradd_sysroot_sstate"
 
 do_package_setscene[depends] += "${USERADDSETSCENEDEPS}"
 do_populate_sysroot_setscene[depends] += "${USERADDSETSCENEDEPS}"
-USERADD_SYSROOT_SETSCENE_TASK = "do_populate_sysroot_setscene"
-USERADD_SYSROOT_SETSCENE_TASK:class-target = "${SYSROOT_PREPARE_TASK}_setscene"
-USERADDSETSCENEDEPS:class-target = "${MLPREFIX}base-passwd:${USERADD_SYSROOT_SETSCENE_TASK} pseudo-native:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene ${MLPREFIX}shadow-sysroot:${USERADD_SYSROOT_SETSCENE_TASK}"
+USERADD_SHADOW_SYSROOT_SETSCENE_TASK = "do_populate_sysroot_setscene"
+USERADD_SHADOW_SYSROOT_SETSCENE_TASK:class-target = "${@'do_populate_sysroot_interface_setscene' if oe.types.boolean(d.getVar('SYSROOT_INTERFACE_ENABLE')) else 'do_populate_sysroot_setscene'}"
+USERADDSETSCENEDEPS:class-target = "${MLPREFIX}base-passwd:do_populate_sysroot_setscene pseudo-native:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene ${MLPREFIX}shadow-sysroot:${USERADD_SHADOW_SYSROOT_SETSCENE_TASK}"
 USERADDSETSCENEDEPS = ""
 
 # Recipe parse-time sanity checks
