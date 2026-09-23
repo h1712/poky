@@ -96,6 +96,14 @@ addtask populate_sysroot after do_install
 
 SYSROOT_PREPROCESS_FUNCS ?= ""
 SYSROOT_DESTDIR = "${WORKDIR}/sysroot-destdir"
+SYSROOT_INTERFACE_DESTDIR = "${WORKDIR}/sysroot-interface-destdir"
+
+# When enabled for a target recipe, use the smaller interface-only sysroot
+# (headers, shared libraries and build metadata) for its recipe dependencies.
+SYSROOT_INTERFACE_ENABLE ?= "0"
+SYSROOT_INTERFACE_ENABLE[doc] = "Enable interface-only dependency sysroots for target recipes. These contain headers, shared libraries, and pkg-config/CMake metadata, but no static archives or executables."
+SYSROOT_PREPARE_TASK = "do_populate_sysroot"
+SYSROOT_PREPARE_TASK:class-target = "${@'do_populate_sysroot_interface' if oe.types.boolean(d.getVar('SYSROOT_INTERFACE_ENABLE')) else 'do_populate_sysroot'}"
 
 python do_populate_sysroot () {
     # SYSROOT 'version' 2
@@ -133,6 +141,87 @@ python do_populate_sysroot_setscene () {
     sstate_setscene(d)
 }
 addtask do_populate_sysroot_setscene
+
+python sysroot_stage_interface () {
+    import os
+    import re
+    import shutil
+
+    if (d.getVar("CLASSOVERRIDE") != "class-target" or
+            not oe.types.boolean(d.getVar("SYSROOT_INTERFACE_ENABLE"))):
+        return
+
+    srcroot = d.getVar("D")
+    destroot = d.getVar("SYSROOT_INTERFACE_DESTDIR")
+    includedir = os.path.normpath(d.expand("${includedir}")).lstrip("/")
+    libdirs = [os.path.normpath(d.expand(x)).lstrip("/")
+               for x in ("${libdir}", "${base_libdir}", "${nonarch_base_libdir}")]
+
+    def interface_file(relpath):
+        name = os.path.basename(relpath)
+        if relpath == includedir or relpath.startswith(includedir + "/"):
+            return True
+        if name.endswith(".pc") or name.endswith(".cmake"):
+            return True
+        if "/pkgconfig/" in "/" + relpath or "/cmake/" in "/" + relpath:
+            return True
+        if any(relpath == x or relpath.startswith(x + "/") for x in libdirs):
+            return name.startswith("lib") and re.search(r"\.so(\.|$)", name)
+        return False
+
+    for root, dirs, files in os.walk(srcroot):
+        relroot = os.path.relpath(root, srcroot)
+        if relroot == ".":
+            relroot = ""
+        for name in files:
+            relpath = os.path.join(relroot, name)
+            if not interface_file(relpath):
+                continue
+            src = os.path.join(srcroot, relpath)
+            dest = os.path.join(destroot, relpath)
+            bb.utils.mkdirhier(os.path.dirname(dest))
+            if os.path.islink(src):
+                if os.path.lexists(dest):
+                    os.unlink(dest)
+                os.symlink(os.readlink(src), dest)
+            else:
+                shutil.copy2(src, dest)
+
+    original_destdir = d.getVar("SYSROOT_DESTDIR")
+    try:
+        d.setVar("SYSROOT_DESTDIR", destroot)
+        bb.build.exec_func("sysroot_strip", d)
+    finally:
+        d.setVar("SYSROOT_DESTDIR", original_destdir)
+
+    multiprov = d.getVar("BB_MULTI_PROVIDER_ALLOWED").split()
+    provdir = d.expand("${SYSROOT_INTERFACE_DESTDIR}${base_prefix}/sysroot-providers/")
+    bb.utils.mkdirhier(provdir)
+    for provider in d.getVar("PROVIDES").split():
+        if provider in multiprov:
+            continue
+        provider = provider.replace("/", "_")
+        with open(os.path.join(provdir, provider), "w") as stream:
+            stream.write(d.getVar("PN"))
+
+do_populate_sysroot_interface[dirs] = "${SYSROOT_INTERFACE_DESTDIR}"
+do_populate_sysroot_interface[cleandirs] = "${SYSROOT_INTERFACE_DESTDIR}"
+do_populate_sysroot_interface[depends] += "${POPULATESYSROOTDEPS}"
+do_populate_sysroot_interface[vardeps] += "SYSROOT_INTERFACE_ENABLE"
+addtask populate_sysroot_interface after do_install
+SSTATETASKS += "do_populate_sysroot_interface"
+do_populate_sysroot_interface[sstate-inputdirs] = "${SYSROOT_INTERFACE_DESTDIR}"
+do_populate_sysroot_interface[sstate-outputdirs] = "${COMPONENTS_DIR}/${PACKAGE_ARCH}/${PN}-interface"
+do_populate_sysroot_interface[sstate-fixmedir] = "${COMPONENTS_DIR}/${PACKAGE_ARCH}/${PN}-interface"
+python do_populate_sysroot_interface () {
+    if not oe.types.boolean(d.getVar("SYSROOT_INTERFACE_ENABLE")):
+        return
+    bb.build.exec_func("sysroot_stage_interface", d)
+}
+python do_populate_sysroot_interface_setscene () {
+    sstate_setscene(d)
+}
+addtask do_populate_sysroot_interface_setscene
 
 def staging_copyfile(c, target, dest, postinsts, seendirs):
     import errno
@@ -181,7 +270,7 @@ def staging_processfixme(fixme, target, recipesysroot, recipesysrootnative, d):
     subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
 
 
-def staging_populate_sysroot_dir(targetsysroot, nativesysroot, native, d):
+def staging_populate_sysroot_dir(targetsysroot, nativesysroot, native, d, taskname="populate_sysroot"):
     import glob
     import subprocess
     import errno
@@ -201,13 +290,13 @@ def staging_populate_sysroot_dir(targetsysroot, nativesysroot, native, d):
 
     bb.utils.mkdirhier(targetdir)
     for pkgarch in pkgarchs:
-        for manifest in glob.glob(d.expand("${SSTATE_MANIFESTS}/manifest-%s-*.populate_sysroot" % pkgarch)):
-            if manifest.endswith("-initial.populate_sysroot"):
+        for manifest in glob.glob(d.expand("${SSTATE_MANIFESTS}/manifest-%s-*.%s" % (pkgarch, taskname))):
+            if manifest.endswith("-initial." + taskname):
                 # skip libgcc-initial due to file overlap
                 continue
-            if not native and (manifest.endswith("-native.populate_sysroot") or "nativesdk-" in manifest):
+            if not native and (manifest.endswith("-native." + taskname) or "nativesdk-" in manifest):
                 continue
-            if native and not (manifest.endswith("-native.populate_sysroot") or manifest.endswith("-cross.populate_sysroot") or "-cross-" in manifest):
+            if native and not (manifest.endswith("-native." + taskname) or manifest.endswith("-cross." + taskname) or "-cross-" in manifest):
                 continue
             tmanifest = targetdir + "/" + os.path.basename(manifest)
             if os.path.exists(tmanifest):
@@ -280,8 +369,9 @@ python extend_recipe_sysroot() {
     nodeps = d.getVar("BB_LIMITEDDEPS") or False
     if nodeps:
         lock = bb.utils.lockfile(recipesysroot + "/sysroot.lock")
-        staging_populate_sysroot_dir(recipesysroot, recipesysrootnative, True, d)
-        staging_populate_sysroot_dir(recipesysroot, recipesysrootnative, False, d)
+        taskname = d.getVar("SYSROOT_PREPARE_TASK").replace("do_", "")
+        staging_populate_sysroot_dir(recipesysroot, recipesysrootnative, True, d, taskname)
+        staging_populate_sysroot_dir(recipesysroot, recipesysrootnative, False, d, taskname)
         bb.utils.unlockfile(lock)
         return
 
@@ -357,7 +447,7 @@ python extend_recipe_sysroot() {
 
     # Direct dependencies should be present and can be depended upon
     for dep in sorted(set(start)):
-        if setscenedeps[dep][1] == "do_populate_sysroot":
+        if setscenedeps[dep][1] == d.getVar("SYSROOT_PREPARE_TASK"):
             if dep not in configuredeps:
                 configuredeps.append(dep)
     bb.note("Direct dependencies are %s" % str(configuredeps))
@@ -384,7 +474,7 @@ python extend_recipe_sysroot() {
                     continue
                 done.append(datadep)
                 new.append(datadep)
-                if datadep not in configuredeps and setscenedeps[datadep][1] == "do_populate_sysroot":
+                if datadep not in configuredeps and setscenedeps[datadep][1] == d.getVar("SYSROOT_PREPARE_TASK"):
                     configuredeps.append(datadep)
                     msgbuf.append("Adding dependency on %s" % setscenedeps[datadep][0])
                 else:
@@ -531,7 +621,8 @@ python extend_recipe_sysroot() {
 
         os.symlink(c + "." + taskhash, depdir + "/" + c)
 
-        manifest, d2 = oe.sstatesig.find_sstate_manifest(c, setscenedeps[dep][2], "populate_sysroot", d, multilibs)
+        prepare_task = d.getVar("SYSROOT_PREPARE_TASK").replace("do_", "")
+        manifest, d2 = oe.sstatesig.find_sstate_manifest(c, setscenedeps[dep][2], prepare_task, d, multilibs)
         if d2 is not d:
             # If we don't do this, the recipe sysroot will be placed in the wrong WORKDIR for multilibs
             # We need a consistent WORKDIR for the image
@@ -636,9 +727,11 @@ python extend_recipe_sysroot() {
 
     bb.utils.unlockfile(lock)
 }
+extend_recipe_sysroot[vardeps] += "SYSROOT_INTERFACE_ENABLE SYSROOT_PREPARE_TASK"
 extend_recipe_sysroot[vardepsexclude] += "MACHINE_ARCH PACKAGE_EXTRA_ARCHS SDK_ARCH BUILD_ARCH SDK_OS BB_TASKDEPDATA"
 
-do_prepare_recipe_sysroot[deptask] = "do_populate_sysroot"
+do_prepare_recipe_sysroot[deptask] = "${SYSROOT_PREPARE_TASK}"
+do_prepare_recipe_sysroot[vardeps] += "SYSROOT_INTERFACE_ENABLE SYSROOT_PREPARE_TASK"
 python do_prepare_recipe_sysroot () {
     bb.build.exec_func("extend_recipe_sysroot", d)
 }
@@ -669,7 +762,7 @@ addhandler staging_taskhandler
 #
 python target_add_sysroot_deps () {
     current_task = "do_" + d.getVar("BB_CURRENTTASK")
-    if current_task not in ["do_populate_sysroot", "do_package"]:
+    if current_task not in ["do_populate_sysroot", "do_populate_sysroot_interface", "do_package"]:
         return
 
     pn = d.getVar("PN")
@@ -679,10 +772,9 @@ python target_add_sysroot_deps () {
     taskdepdata = d.getVar("BB_TASKDEPDATA", False)
     deps = {}
     for dep in taskdepdata.values():
-        if dep[1] == "do_populate_sysroot" and not dep[0].endswith(("-native", "-initial")) and "-cross-" not in dep[0] and dep[0] != pn:
+        if dep[1] in ["do_populate_sysroot", "do_populate_sysroot_interface"] and not dep[0].endswith(("-native", "-initial")) and "-cross-" not in dep[0] and dep[0] != pn:
             deps[dep[0]] = dep[6]
 
     d.setVar("HASHEQUIV_EXTRA_SIGDATA", "\n".join("%s: %s" % (k, deps[k]) for k in sorted(deps.keys())))
 }
 SSTATECREATEFUNCS += "target_add_sysroot_deps"
-

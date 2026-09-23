@@ -1093,6 +1093,7 @@ setscene_depvalid[vardepsexclude] = "SSTATE_EXCLUDEDEPS_SYSROOT"
 BB_SETSCENE_DEPVALID = "setscene_depvalid"
 
 def setscene_depvalid(task, taskdependees, notneeded, d, log=None):
+    sysroot_tasks = ['do_populate_sysroot', 'do_populate_sysroot_interface']
     # taskdependees is a dict of tasks which depend on task, each being a 3 item list of [PN, TASKNAME, FILENAME]
     # task is included in taskdependees too
     # Return - False - We need this dependency
@@ -1134,10 +1135,10 @@ def setscene_depvalid(task, taskdependees, notneeded, d, log=None):
         if taskdependees[task][1] == "do_package" and taskdependees[dep][1] in ['do_package', 'do_package_write_deb', 'do_package_write_ipk', 'do_package_write_rpm', 'do_packagedata', 'do_package_qa']:
             continue
         # do_package_write_* need do_populate_sysroot as they're mainly postinstall dependencies
-        if taskdependees[task][1] == "do_populate_sysroot" and taskdependees[dep][1] in ['do_package_write_deb', 'do_package_write_ipk', 'do_package_write_rpm']:
+        if taskdependees[task][1] in sysroot_tasks and taskdependees[dep][1] in ['do_package_write_deb', 'do_package_write_ipk', 'do_package_write_rpm']:
             return False
         # do_package/packagedata/package_qa/deploy don't need do_populate_sysroot
-        if taskdependees[task][1] == "do_populate_sysroot" and taskdependees[dep][1] in ['do_package', 'do_packagedata', 'do_package_qa', 'do_deploy']:
+        if taskdependees[task][1] in sysroot_tasks and taskdependees[dep][1] in ['do_package', 'do_packagedata', 'do_package_qa', 'do_deploy']:
             continue
         # Native/Cross packages don't exist and are noexec anyway
         if isNativeCross(taskdependees[dep][0]) and taskdependees[dep][1] in ['do_package_write_deb', 'do_package_write_ipk', 'do_package_write_rpm', 'do_packagedata', 'do_package', 'do_package_qa']:
@@ -1145,11 +1146,11 @@ def setscene_depvalid(task, taskdependees, notneeded, d, log=None):
 
         # This is due to the [depends] in useradd.bbclass complicating matters
         # The logic *is* reversed here due to the way hard setscene dependencies are injected
-        if (taskdependees[task][1] == 'do_package' or taskdependees[task][1] == 'do_populate_sysroot') and taskdependees[dep][0].endswith(('shadow-native', 'shadow-sysroot', 'base-passwd', 'pseudo-native')) and taskdependees[dep][1] == 'do_populate_sysroot':
+        if (taskdependees[task][1] == 'do_package' or taskdependees[task][1] in sysroot_tasks) and taskdependees[dep][0].endswith(('shadow-native', 'shadow-sysroot', 'base-passwd', 'pseudo-native')) and taskdependees[dep][1] in sysroot_tasks:
             continue
 
         # Consider sysroot depending on sysroot tasks
-        if taskdependees[task][1] == 'do_populate_sysroot' and taskdependees[dep][1] == 'do_populate_sysroot':
+        if taskdependees[task][1] in sysroot_tasks and taskdependees[dep][1] in sysroot_tasks:
             # Allow excluding certain recursive dependencies. If a recipe needs it should add a
             # specific dependency itself, rather than relying on one of its dependees to pull
             # them in.
