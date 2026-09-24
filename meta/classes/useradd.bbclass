@@ -173,7 +173,7 @@ SSTATEPREINSTFUNCS:append:class-target = " useradd_sysroot_sstate"
 
 do_package_setscene[depends] += "${USERADDSETSCENEDEPS}"
 do_populate_sysroot_setscene[depends] += "${USERADDSETSCENEDEPS}"
-USERADDSETSCENEDEPS:class-target = "${MLPREFIX}base-passwd:do_populate_sysroot_setscene pseudo-native:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene ${@d.getVar('MLPREFIX') + 'shadow-sysroot:do_populate_sysroot_setscene' if not oe.types.boolean(d.getVar('SYSROOT_INTERFACE_ENABLE')) else ''}"
+USERADDSETSCENEDEPS:class-target = "${MLPREFIX}base-passwd:do_populate_sysroot_setscene pseudo-native:do_populate_sysroot_setscene shadow-native:do_populate_sysroot_setscene"
 USERADDSETSCENEDEPS = ""
 
 # Recipe parse-time sanity checks
