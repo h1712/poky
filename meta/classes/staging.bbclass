@@ -405,6 +405,16 @@ python extend_recipe_sysroot() {
 
     start = set([start])
 
+    def is_native_cross(pn):
+        return pn.endswith("-native") or "-cross-" in pn or "-crosssdk" in pn or pn.endswith("-cross")
+
+    def prepare_task_for(dep):
+        if (d.getVar("CLASSOVERRIDE") == "class-target" and
+                oe.types.boolean(d.getVar("SYSROOT_INTERFACE_ENABLE")) and
+                not is_native_cross(setscenedeps[dep][0])):
+            return "do_populate_sysroot_interface"
+        return "do_populate_sysroot"
+
     sstatetasks = d.getVar("SSTATETASKS").split()
     # Add recipe specific tasks referenced by setscene_depvalid()
     sstatetasks.append("do_stash_locale")
@@ -454,7 +464,7 @@ python extend_recipe_sysroot() {
 
     # Direct dependencies should be present and can be depended upon
     for dep in sorted(set(start)):
-        if setscenedeps[dep][1] == d.getVar("SYSROOT_PREPARE_TASK"):
+        if setscenedeps[dep][1] == prepare_task_for(dep):
             if dep not in configuredeps:
                 configuredeps.append(dep)
     bb.note("Direct dependencies are %s" % str(configuredeps))
@@ -481,7 +491,7 @@ python extend_recipe_sysroot() {
                     continue
                 done.append(datadep)
                 new.append(datadep)
-                if datadep not in configuredeps and setscenedeps[datadep][1] == d.getVar("SYSROOT_PREPARE_TASK"):
+                if datadep not in configuredeps and setscenedeps[datadep][1] == prepare_task_for(datadep):
                     configuredeps.append(datadep)
                     msgbuf.append("Adding dependency on %s" % setscenedeps[datadep][0])
                 else:
@@ -628,7 +638,7 @@ python extend_recipe_sysroot() {
 
         os.symlink(c + "." + taskhash, depdir + "/" + c)
 
-        prepare_task = d.getVar("SYSROOT_PREPARE_TASK").replace("do_", "")
+        prepare_task = prepare_task_for(dep).replace("do_", "")
         manifest, d2 = oe.sstatesig.find_sstate_manifest(c, setscenedeps[dep][2], prepare_task, d, multilibs)
         if d2 is not d:
             # If we don't do this, the recipe sysroot will be placed in the wrong WORKDIR for multilibs
