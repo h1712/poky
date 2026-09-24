@@ -149,6 +149,15 @@ python sysroot_stage_interface () {
 
     if (d.getVar("CLASSOVERRIDE") != "class-target" or
             not oe.types.boolean(d.getVar("SYSROOT_INTERFACE_ENABLE"))):
+        original_destdir = d.getVar("SYSROOT_DESTDIR")
+        try:
+            d.setVar("SYSROOT_DESTDIR", d.getVar("SYSROOT_INTERFACE_DESTDIR"))
+            bb.build.exec_func("sysroot_stage_all", d)
+            bb.build.exec_func("sysroot_strip", d)
+            for f in (d.getVar('SYSROOT_PREPROCESS_FUNCS') or '').split():
+                bb.build.exec_func(f, d)
+        finally:
+            d.setVar("SYSROOT_DESTDIR", original_destdir)
         return
 
     srcroot = d.getVar("D")
@@ -214,8 +223,6 @@ do_populate_sysroot_interface[sstate-inputdirs] = "${SYSROOT_INTERFACE_DESTDIR}"
 do_populate_sysroot_interface[sstate-outputdirs] = "${COMPONENTS_DIR}/${PACKAGE_ARCH}/${PN}-interface"
 do_populate_sysroot_interface[sstate-fixmedir] = "${COMPONENTS_DIR}/${PACKAGE_ARCH}/${PN}-interface"
 python do_populate_sysroot_interface () {
-    if not oe.types.boolean(d.getVar("SYSROOT_INTERFACE_ENABLE")):
-        return
     bb.build.exec_func("sysroot_stage_interface", d)
 }
 python do_populate_sysroot_interface_setscene () {
