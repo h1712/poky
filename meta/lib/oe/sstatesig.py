@@ -522,6 +522,8 @@ def OEOuthashBasic(path, sigfile, task, d):
     abi_aware_shlibs = (d.getVar('HASHEQUIV_ABI_AWARE_SHLIBS') == '1' and
                         task in ('populate_sysroot',
                                  'populate_sysroot_interface'))
+    abi_only_shlibs = (d.getVar('HASHEQUIV_ABI_ONLY_SHLIBS') == '1' and
+                       task == 'populate_sysroot')
     abi_hash_version = d.getVar('HASHEQUIV_ABI_HASH_VERSION') or '1'
     readelf = d.getVar('READELF')
 
@@ -661,6 +663,9 @@ def OEOuthashBasic(path, sigfile, task, d):
 
             def process(path):
                 s = os.lstat(path)
+
+                if abi_only_shlibs and not is_shared_lib(path):
+                    return
 
                 if stat.S_ISDIR(s.st_mode):
                     update_hash('d')

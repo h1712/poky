@@ -151,6 +151,13 @@ HASHEQUIV_ABI_HASH_VERSION[doc] = "Version of the normalized ABI descriptor \
     treated as equivalent. \
     "
 
+HASHEQUIV_ABI_ONLY_SHLIBS ?= "0"
+HASHEQUIV_ABI_ONLY_SHLIBS[doc] = "EXPERIMENTAL: when set to '1', \
+    do_populate_sysroot output hashing includes only shared-library files. \
+    All non-shared-library files are ignored for equivalence and may become \
+    stale in consumers. Use only for controlled experiments. \
+    "
+
 python () {
     if bb.data.inherits_class('native', d):
         d.setVar('SSTATE_PKGARCH', d.getVar('BUILD_ARCH', False))
@@ -175,6 +182,9 @@ python () {
     unique_tasks = sorted(set((d.getVar('SSTATETASKS') or "").split()))
     d.setVar('SSTATETASKS', " ".join(unique_tasks))
     for task in unique_tasks:
+        if task in ("do_populate_sysroot", "do_populate_sysroot_interface"):
+            d.appendVarFlag(task, 'vardeps',
+                            " HASHEQUIV_ABI_AWARE_SHLIBS HASHEQUIV_ABI_HASH_VERSION HASHEQUIV_ABI_ONLY_SHLIBS")
         d.prependVarFlag(task, 'prefuncs', "sstate_task_prefunc ")
         # Generally sstate should be last, execpt for buildhistory functions
         postfuncs = (d.getVarFlag(task, 'postfuncs') or "").split()
