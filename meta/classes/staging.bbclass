@@ -103,7 +103,7 @@ SYSROOT_INTERFACE_DESTDIR = "${WORKDIR}/sysroot-interface-destdir"
 SYSROOT_INTERFACE_ENABLE ?= "0"
 SYSROOT_INTERFACE_ENABLE[doc] = "Enable interface-only dependency sysroots for target recipes. These contain headers, shared libraries, and pkg-config/CMake metadata, but no static archives or executables."
 SYSROOT_PREPARE_TASK = "do_populate_sysroot"
-SYSROOT_PREPARE_TASK:class-target = "${@'do_populate_sysroot_interface' if oe.types.boolean(d.getVar('SYSROOT_INTERFACE_ENABLE')) else 'do_populate_sysroot'}"
+SYSROOT_PREPARE_TASK:class-target = "${@'do_populate_sysroot_interface' if oe.types.boolean(d.getVar('SYSROOT_INTERFACE_ENABLE')) and not bb.data.inherits_class('ipk-mode-support-base', d) else 'do_populate_sysroot'}"
 
 python do_populate_sysroot () {
     # SYSROOT 'version' 2
