@@ -132,32 +132,6 @@ SSTATE_HASHEQUIV_REPORT_TASKDATA[doc] = "Report additional useful data to the \
     data if the equivalence server is public. \
     "
 
-HASHEQUIV_ABI_AWARE_SHLIBS ?= "0"
-HASHEQUIV_ABI_AWARE_SHLIBS[doc] = "When set to '1', the output hash computed for \
-    ELF shared libraries (*.so, *.so.N) in do_populate_sysroot use a normalized \
-    ABI descriptor instead of their full file content. The descriptor includes \
-    ELF identity, SONAME, and defined dynamic symbols with type, binding, \
-    visibility, size, and version information. This allows hash equivalence to \
-    recognize internal implementation-only changes while retaining normal \
-    content hashing for package and runtime tasks. If ABI inspection fails, \
-    full-content hashing is used. Requires READELF to be set to a working \
-    readelf for the target. \
-    "
-
-HASHEQUIV_ABI_HASH_VERSION ?= "3"
-HASHEQUIV_ABI_HASH_VERSION[doc] = "Version of the normalized ABI descriptor \
-    used by HASHEQUIV_ABI_AWARE_SHLIBS. Increment this when the descriptor \
-    format changes so records produced by different algorithms cannot be \
-    treated as equivalent. \
-    "
-
-HASHEQUIV_ABI_ONLY_SHLIBS ?= "0"
-HASHEQUIV_ABI_ONLY_SHLIBS[doc] = "EXPERIMENTAL: when set to '1', \
-    do_populate_sysroot output hashing includes only shared-library files. \
-    All non-shared-library files are ignored for equivalence and may become \
-    stale in consumers. Use only for controlled experiments. \
-    "
-
 python () {
     if bb.data.inherits_class('native', d):
         d.setVar('SSTATE_PKGARCH', d.getVar('BUILD_ARCH', False))
@@ -182,9 +156,6 @@ python () {
     unique_tasks = sorted(set((d.getVar('SSTATETASKS') or "").split()))
     d.setVar('SSTATETASKS', " ".join(unique_tasks))
     for task in unique_tasks:
-        if task in ("do_populate_sysroot", "do_populate_sysroot_interface"):
-            d.appendVarFlag(task, 'vardeps',
-                            " HASHEQUIV_ABI_AWARE_SHLIBS HASHEQUIV_ABI_HASH_VERSION HASHEQUIV_ABI_ONLY_SHLIBS")
         d.prependVarFlag(task, 'prefuncs', "sstate_task_prefunc ")
         # Generally sstate should be last, execpt for buildhistory functions
         postfuncs = (d.getVarFlag(task, 'postfuncs') or "").split()

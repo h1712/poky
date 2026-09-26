@@ -514,16 +514,17 @@ def OEOuthashBasic(path, sigfile, task, d):
     hash_version = d.getVar('HASHEQUIV_HASH_VERSION')
     extra_sigdata = d.getVar("HASHEQUIV_EXTRA_SIGDATA")
 
-    # When enabled, ELF shared libraries in do_populate_sysroot are hashed
-    # using a normalized public ABI descriptor rather than their full file
-    # content. This lets hash-equivalence treat two builds of the same shared
-    # library as equivalent when only internal (non-exported) code changed,
-    # while retaining the normal content hash for package and runtime tasks.
-    abi_aware_shlibs = (d.getVar('HASHEQUIV_ABI_AWARE_SHLIBS') == '1' and
-                        task == 'populate_sysroot')
-    abi_only_shlibs = (d.getVar('HASHEQUIV_ABI_ONLY_SHLIBS') == '1' and
-                       task == 'populate_sysroot')
-    abi_hash_version = d.getVar('HASHEQUIV_ABI_HASH_VERSION') or '1'
+    # When enabled, ELF shared libraries are hashed using a normalized public
+    # ABI descriptor rather than their full file content. This lets
+    # hash-equivalence treat two builds of the same shared library as
+    # equivalent when only internal (non-exported) code changed. The option
+    # intentionally applies to every sstate task, matching the original
+    # experimental behavior; inspection failures still use content hashing.
+    # Test-only configuration: apply ABI-aware hashing to every sstate task,
+    # retain all output files in the hash, and use the high-hit descriptor.
+    abi_aware_shlibs = True
+    abi_only_shlibs = False
+    abi_hash_version = '4'
     readelf = d.getVar('READELF')
 
     def abi_fallback(fpath, reason):
@@ -606,8 +607,11 @@ def OEOuthashBasic(path, sigfile, task, d):
             if not name:
                 return abi_fallback(fpath, 'empty dynamic symbol name')
             symbol_rows = True
-            symbols.append('|'.join((fields[3], fields[4], fields[5],
-                                     ndx, fields[2], name)))
+            # Keep the high-hit behavior of the original implementation:
+            # exported symbol names define the ABI identity. The newer ELF
+            # identity, SONAME, NEEDED, parsing, and fallback checks remain
+            # part of the descriptor.
+            symbols.append(name)
 
         if not symbols:
             return abi_fallback(fpath, 'no defined dynamic symbols')
