@@ -521,9 +521,9 @@ def OEOuthashBasic(path, sigfile, task, d):
     # intentionally applies to every sstate task, matching the original
     # experimental behavior; inspection failures still use content hashing.
     # Test-only configuration: apply ABI-aware hashing to every sstate task,
-    # retain all output files in the hash, and use the high-hit descriptor.
+    # hash only shared-library files, and use the high-hit descriptor.
     abi_aware_shlibs = True
-    abi_only_shlibs = False
+    abi_only_shlibs = True
     abi_hash_version = '4'
     readelf = d.getVar('READELF')
 
