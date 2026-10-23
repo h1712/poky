@@ -110,3 +110,4 @@ python packagedata_validate_setscene () {
     raise bb.BBHandledException(
         "%s: stale packagedata restored from sstate" % pn
     )
+}
