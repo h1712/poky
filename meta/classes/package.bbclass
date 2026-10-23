@@ -2550,7 +2550,7 @@ do_packagedata[lockfiles] += "${PKGDATA_DIR}/.lock"
 
 python do_packagedata_setscene () {
     sstate_setscene(d)
-    packagedata_validate_setscene(d)
+    bb.build.exec_func("packagedata_validate_setscene", d)
 }
 do_packagedata_setscene[lockfiles] += "${PKGDATA_DIR}/.lock"
 addtask do_packagedata_setscene
