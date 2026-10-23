@@ -2546,10 +2546,13 @@ SSTATETASKS += "do_packagedata"
 do_packagedata[sstate-inputdirs] = "${WORKDIR}/pkgdata-pdata-input"
 do_packagedata[sstate-outputdirs] = "${PKGDATA_DIR}"
 do_packagedata[stamp-extra-info] = "${MACHINE_ARCH}"
+do_packagedata[lockfiles] += "${PKGDATA_DIR}/.lock"
 
 python do_packagedata_setscene () {
     sstate_setscene(d)
+    packagedata_validate_setscene(d)
 }
+do_packagedata_setscene[lockfiles] += "${PKGDATA_DIR}/.lock"
 addtask do_packagedata_setscene
 
 #
