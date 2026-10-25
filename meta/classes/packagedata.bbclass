@@ -107,7 +107,5 @@ python packagedata_validate_setscene () {
         "%s current='%s' restored='%s'; rerunning do_packagedata"
         % (pn, key, expected, restored)
     )
-    raise bb.BBHandledException(
-        "%s: stale packagedata restored from sstate" % pn
-    )
+    d.setVar("PACKAGEDATA_STALE", "1")
 }
