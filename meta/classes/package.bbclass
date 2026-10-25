@@ -2551,9 +2551,14 @@ do_packagedata[lockfiles] += "${PKGDATA_DIR}/.lock"
 python do_packagedata_setscene () {
     sstate_setscene(d)
     bb.build.exec_func("packagedata_validate_setscene", d)
+    if d.getVar("PACKAGEDATA_STALE") == "1":
+        raise bb.BBHandledException(
+            "%s: stale packagedata restored from sstate" % d.getVar("PN")
+        )
 }
 do_packagedata_setscene[lockfiles] += "${PKGDATA_DIR}/.lock"
 addtask do_packagedata_setscene
+do_packagedata[prefuncs] += "packagedata_validate_setscene"
 
 #
 # Helper functions for the package writing classes
