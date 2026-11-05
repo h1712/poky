@@ -760,6 +760,7 @@ sstate_package[vardepsexclude] += "SSTATE_SIG_KEY"
 
 def pstaging_fetch(sstatefetch, d):
     import bb.fetch2
+    import socket
 
     # Only try and fetch if the user has configured a mirror
     mirrors = d.getVar('SSTATE_MIRRORS')
@@ -798,6 +799,12 @@ def pstaging_fetch(sstatefetch, d):
             fetcher.checkstatus()
             fetcher.download()
 
+        except socket.timeout as e:
+            bb.warn(
+                "Sstate mirror timed out while checking %s: %s. "
+                "Falling back to full task execution." % (srcuri, e)
+            )
+            return
         except bb.fetch2.BBFetchException:
             pass
 
