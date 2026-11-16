@@ -73,6 +73,24 @@ python packagedata_validate_setscene () {
         return
 
     key, expected, restored = mismatch
+    log_path = d.expand("${TMPDIR}/log/packagedata-validation.log")
+    try:
+        bb.utils.mkdirhier(os.path.dirname(log_path))
+        with open(log_path, "a") as log:
+            log.write(
+                "%s task=%s mismatch=%s current=%r restored=%r action=purge\n"
+                % (
+                    pn,
+                    d.getVar("BB_CURRENTTASK") or "unknown",
+                    key,
+                    expected,
+                    restored,
+                )
+            )
+    except OSError as e:
+        bb.warn("%s: unable to write packagedata validation log %s: %s"
+                % (pn, log_path, e))
+
     pkgdata_dir = d.getVar("PKGDATA_DIR")
     paths = [os.path.join(pkgdata_dir, pn)]
     for pkg in packages:
