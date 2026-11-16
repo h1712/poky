@@ -73,7 +73,7 @@ python packagedata_validate_setscene () {
         return
 
     key, expected, restored = mismatch
-    log_path = d.expand("${TMPDIR}/log/packagedata-validation.log")
+    log_path = d.expand("${TMPDIR}/log/hashequivalence-debug.log")
     try:
         bb.utils.mkdirhier(os.path.dirname(log_path))
         with open(log_path, "a") as log:
