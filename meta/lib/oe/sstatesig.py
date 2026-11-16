@@ -523,10 +523,42 @@ def OEOuthashBasic(path, sigfile, task, d):
     abi_only_shlibs = d.getVar('HASHEQUIV_ABI_ONLY_SHLIBS') == '1'
     abi_hash_version = d.getVar('HASHEQUIV_ABI_HASH_VERSION') or '13'
     readelf = d.getVar('READELF')
+    debug_log_path = d.expand("${TMPDIR}/log/hashequivalence-debug.log")
+    debug_log_error = [False]
+    try:
+        bb.utils.mkdirhier(os.path.dirname(debug_log_path))
+    except OSError as e:
+        bb.warn("Hash equivalence debug log is unavailable at %s: %s" %
+                (debug_log_path, e))
+        debug_log_path = None
+
+    def debug_log(event, **details):
+        if not debug_log_path:
+            return
+        fields = ["%s=%r" % (key, details[key]) for key in sorted(details)]
+        try:
+            with open(debug_log_path, "a") as log:
+                log.write("task=%s event=%s %s\n" %
+                          (task, event, " ".join(fields)))
+        except OSError as e:
+            if not debug_log_error[0]:
+                bb.warn("Hash equivalence debug log write failed at %s: %s" %
+                        (debug_log_path, e))
+                debug_log_error[0] = True
+
+    if abi_aware_shlibs or abi_only_shlibs:
+        debug_log(
+            "hash-start",
+            abi_aware=abi_aware_shlibs,
+            abi_only=abi_only_shlibs,
+            abi_hash_version=abi_hash_version,
+            output_root=output_root,
+        )
 
     def abi_fallback(fpath, reason):
         bb.debug(2, 'Hash equivalence ABI hash fallback for %s: %s' %
                  (fpath, reason))
+        debug_log("abi-fallback", file=fpath, reason=reason)
         return None
 
     def get_abi_hash(fpath):
@@ -721,6 +753,8 @@ def OEOuthashBasic(path, sigfile, task, d):
         abi_hash.update("\n".join(descriptor).encode('utf-8'))
         bb.debug(2, 'Hash equivalence ABI hash applied to %s (%d symbols)' %
                  (fpath, len(symbols)))
+        debug_log("abi-applied", file=fpath, symbols=len(symbols),
+                  abi_hash=abi_hash.hexdigest())
         return abi_hash.hexdigest()
 
     def is_shared_lib(fpath):
@@ -927,4 +961,7 @@ def OEOuthashBasic(path, sigfile, task, d):
     finally:
         os.chdir(prev_dir)
 
-    return h.hexdigest()
+    output_hash = h.hexdigest()
+    if abi_aware_shlibs or abi_only_shlibs:
+        debug_log("hash-complete", output_hash=output_hash)
+    return output_hash
