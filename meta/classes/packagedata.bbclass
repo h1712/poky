@@ -105,13 +105,10 @@ python packagedata_validate_setscene () {
                 % (pn, log_path, e))
 
     paths = [os.path.join(pkgdata_dir, pn)]
-    runtime_targets = set()
     for pkg in packages:
-        runtime_targets.add(subdata[pkg].get("PKG") or pkg)
         paths.extend([
             os.path.join(pkgdata_dir, "runtime", pkg),
             os.path.join(pkgdata_dir, "runtime", pkg + ".packaged"),
-            os.path.join(pkgdata_dir, "runtime-reverse", pkg),
             os.path.join(pkgdata_dir, "extended", pkg + ".json.zstd"),
         ])
 
@@ -127,8 +124,7 @@ python packagedata_validate_setscene () {
                     continue
                 target = os.path.realpath(path)
                 if target.startswith(runtime_dir + os.sep):
-                    if (os.path.basename(target) in packages or
-                            os.path.basename(path) in runtime_targets):
+                    if os.path.basename(target) in packages:
                         paths.append(path)
 
     for path in paths:
