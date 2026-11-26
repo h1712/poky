@@ -2513,10 +2513,17 @@ addtask package after do_install
 SSTATETASKS += "do_package"
 do_package[cleandirs] = "${PKGDEST} ${PKGDESTWORK}"
 do_package[sstate-plaindirs] = "${PKGD} ${PKGDEST} ${PKGDESTWORK}"
+do_package[sstate-lockfile] += "${PKGDATA_DIR}/.lock"
 do_package_setscene[dirs] = "${STAGING_DIR}"
 
 python do_package_setscene () {
     sstate_setscene(d)
+    d.setVar("PACKAGEDATA_VALIDATE_DIR", d.getVar("PKGDESTWORK"))
+    bb.build.exec_func("packagedata_validate_setscene", d)
+    if d.getVar("PACKAGEDATA_STALE") == "1":
+        raise bb.BBHandledException(
+            "%s: stale package data restored from sstate" % d.getVar("PN")
+        )
 }
 addtask do_package_setscene
 
@@ -2546,7 +2553,7 @@ SSTATETASKS += "do_packagedata"
 do_packagedata[sstate-inputdirs] = "${WORKDIR}/pkgdata-pdata-input"
 do_packagedata[sstate-outputdirs] = "${PKGDATA_DIR}"
 do_packagedata[stamp-extra-info] = "${MACHINE_ARCH}"
-do_packagedata[lockfiles] += "${PKGDATA_DIR}/.lock"
+do_packagedata[sstate-lockfile] += "${PKGDATA_DIR}/.lock"
 
 python do_packagedata_setscene () {
     sstate_setscene(d)
@@ -2556,9 +2563,9 @@ python do_packagedata_setscene () {
             "%s: stale packagedata restored from sstate" % d.getVar("PN")
         )
 }
-do_packagedata_setscene[lockfiles] += "${PKGDATA_DIR}/.lock"
 addtask do_packagedata_setscene
 do_packagedata[prefuncs] += "packagedata_validate_setscene"
+packagedata_validate_setscene[lockfiles] += "${PKGDATA_DIR}/.lock"
 
 #
 # Helper functions for the package writing classes
