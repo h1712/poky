@@ -44,12 +44,18 @@ python packagedata_validate_setscene () {
         "PV": d.getVar("PV"),
         "PR": d.getVar("PR"),
     }
-    recipe_data = oe.packagedata.read_pkgdata(pn, d)
-    if not recipe_data:
-        return
+    pkgdata_dir = d.getVar("PACKAGEDATA_VALIDATE_DIR") or d.getVar("PKGDATA_DIR")
+    recipe_data = oe.packagedata.read_pkgdatafile(
+        os.path.join(pkgdata_dir, pn)
+    )
 
     packages = set((d.getVar("PACKAGES") or "").split())
     packages.update((recipe_data.get("PACKAGES") or "").split())
+    subdata = {}
+    for pkg in packages:
+        subdata[pkg] = oe.packagedata.read_pkgdatafile(
+            os.path.join(pkgdata_dir, "runtime", pkg)
+        )
     mismatch = None
 
     for key in current:
@@ -60,9 +66,8 @@ python packagedata_validate_setscene () {
 
     if mismatch is None:
         for pkg in packages:
-            subdata = oe.packagedata.read_subpkgdata(pkg, d)
             for key in current:
-                restored = subdata.get(key)
+                restored = subdata[pkg].get(key)
                 if restored is not None and restored != current[key]:
                     mismatch = (key, current[key], restored)
                     break
@@ -73,6 +78,14 @@ python packagedata_validate_setscene () {
         return
 
     key, expected, restored = mismatch
+    for pkg in packages:
+        owner = subdata[pkg].get("PN")
+        if owner is not None and owner != pn:
+            bb.fatal(
+                "Recipe %s cannot purge package %s owned by recipe %s; "
+                "resolve the package ownership conflict." % (pn, pkg, owner)
+            )
+
     log_path = d.expand("${TMPDIR}/log/hashequivalence-debug.log")
     try:
         bb.utils.mkdirhier(os.path.dirname(log_path))
@@ -91,9 +104,10 @@ python packagedata_validate_setscene () {
         bb.warn("%s: unable to write packagedata validation log %s: %s"
                 % (pn, log_path, e))
 
-    pkgdata_dir = d.getVar("PKGDATA_DIR")
     paths = [os.path.join(pkgdata_dir, pn)]
+    runtime_targets = set()
     for pkg in packages:
+        runtime_targets.add(subdata[pkg].get("PKG") or pkg)
         paths.extend([
             os.path.join(pkgdata_dir, "runtime", pkg),
             os.path.join(pkgdata_dir, "runtime", pkg + ".packaged"),
@@ -102,7 +116,7 @@ python packagedata_validate_setscene () {
         ])
 
     runtime_dir = os.path.join(pkgdata_dir, "runtime")
-    for root in ("runtime-rprovides",):
+    for root in ("runtime-rprovides", "runtime-reverse"):
         provider_dir = os.path.join(pkgdata_dir, root)
         if not os.path.isdir(provider_dir):
             continue
@@ -113,11 +127,15 @@ python packagedata_validate_setscene () {
                     continue
                 target = os.path.realpath(path)
                 if target.startswith(runtime_dir + os.sep):
-                    if os.path.basename(target) in packages:
+                    if (os.path.basename(target) in packages or
+                            os.path.basename(path) in runtime_targets):
                         paths.append(path)
 
     for path in paths:
         if os.path.lexists(path):
+            if os.path.isdir(path) and not os.path.islink(path):
+                bb.fatal("Recipe %s cannot purge unexpected directory %s"
+                         % (pn, path))
             os.unlink(path)
 
     bb.warn(
